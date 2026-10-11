@@ -183,7 +183,8 @@ class Dots:
     """Pushes the mixed state to every DataFeel dot on a background thread
     (Modbus over serial is slow, so the HUD never waits on it)."""
 
-    def __init__(self, enabled=True):
+    def __init__(self, enabled=True, max_thermal=0.8):
+        self.max = max_thermal
         self.dots, self.status = [], "no dots (preview only)"
         self.state = {"thermal": 0.0, "rgb": (0, 0, 0), "click": False}
         self.lock = threading.Lock()
@@ -205,23 +206,47 @@ class Dots:
             self.state["thermal"], self.state["rgb"] = thermal, rgb
             self.state["click"] |= click
 
+    # The dots run in the firmware's closed-loop skin-temperature mode, not raw power:
+    # raw power kept climbing (43 C after two heat pulses) and saturated the heat sink.
+    NEUTRAL_C, SPAN_C = 33.0, 5.0              # thermal -max..+max  ->  28..38 C
+    SKIN_LIMIT_C, SINK_LIMIT_C = 40.5, 48.0    # hard cut-outs; resume below 38 / 42
+
+    def _target(self, d, temp):
+        from datafeel.device import ThermalMode
+        d.registers.set_thermal_mode(ThermalMode.TEMPERATURE_TARGET)
+        d.registers.set_skin_temp_target(temp)  # SDK's activate_thermal_temperature_control has a typo
+
     def _run(self):
         from datafeel.device import VibrationWaveforms
-        last_thermal = None
+        sent, resting, n = {}, set(), 0
         while True:
             with self.lock:
                 s = dict(self.state)
                 self.state["click"] = False
-            for d in self.dots:
+            target = round(self.NEUTRAL_C + s["thermal"] / self.max * self.SPAN_C, 1)
+            n += 1
+            for i, d in enumerate(self.dots):
                 try:
-                    if last_thermal is None or abs(s["thermal"] - last_thermal) > 0.03:
-                        d.activate_thermal_intensity_control(s["thermal"])
+                    if n % 4 == 0:                                 # ~1 Hz safety check + HUD readout
+                        skin, sink = d.registers.get_skin_temperature(), d.registers.get_sink_temperature()
+                        if skin > self.SKIN_LIMIT_C or sink > self.SINK_LIMIT_C:
+                            if i not in resting:
+                                d.disable_all_thermal()
+                            resting.add(i)
+                        elif i in resting and skin < 38 and sink < 42:
+                            resting.discard(i)
+                            sent.pop(i, None)
+                        if i == 0:
+                            rest = "  RESTING (too hot)" if resting else ""
+                            self.status = f"{len(self.dots)} dot(s)  skin {skin:.1f} C -> {target:.0f} C{rest}"
+                    if i not in resting and abs(target - sent.get(i, -99)) >= 0.3:
+                        self._target(d, target)
+                        sent[i] = target
                     d.set_led(*s["rgb"])
                     if s["click"]:
                         d.play_vibration_sequence([VibrationWaveforms.DOUBLE_CLICK_P100])
                 except Exception as e:
                     self.status = f"DataFeel write error: {e}"
-            last_thermal = s["thermal"]
             time.sleep(0.25)
 
     def off(self):
@@ -290,7 +315,7 @@ def main():
             breath = RadarBreath()
         except Exception as e:
             print(f"[radar] not available ({e}) - using simulated breathing")
-    dots = Dots(not args.no_dots)
+    dots = Dots(not args.no_dots, args.max)
     print(f"[dataFeel] {dots.status}")
 
     scene_s, thermal = 0.0, 0.0

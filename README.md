@@ -27,7 +27,7 @@ cd ~/thermoscene
 
 `clips/test_fire_ocean_snow.mp4` is a 12 s test clip: 4 s fire, 4 s ocean, 4 s snow.
 
-Press `q` in the ThermoScene window to quit. The dots switch off on exit. Thermal intensity is capped at 0.8 (`--max`).
+Press `q` in the ThermoScene window to quit. The dots switch off on exit. The dots use the firmware's closed-loop skin-temperature mode: scenes map to 28–38 °C targets, and each dot cuts out if skin goes above 40.5 °C or the heat sink above 48 °C. Tested on a real dot: skin stayed between 32 and 39 °C through repeated fire, ocean and snow loops, lagging the target by about 2–4 s.
 
 ## Hardware
 - **DataFeel**: El Jefe controller over USB (CP2102N, 10c4:ea60). SDK in `vendor/devkit-samples` (official DataFeel repo).
