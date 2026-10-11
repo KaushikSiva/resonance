@@ -44,6 +44,9 @@
   .play{appearance:none;border:0;cursor:pointer;font:inherit;font-weight:700;
     background:var(--fire);color:#160a04;border-radius:999px;padding:9px 18px;letter-spacing:.05em;text-transform:uppercase}
   .play:hover{background:var(--fire-2)}
+  .stop{appearance:none;border:0;cursor:pointer;font:inherit;font-weight:700;
+    background:#e5333a;color:#fff;border-radius:999px;padding:9px 20px;letter-spacing:.08em;text-transform:uppercase}
+  .stop:hover{background:#ff4b52}
 
   .rail{display:flex;flex-direction:column;gap:12px;min-width:0}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 15px}
@@ -95,7 +98,8 @@
       <div class="beat" id="beatring"></div>
       <div class="hint" id="hint">
         <button class="play" id="play">▶ Start the show</button>
-        <span>wear the dot · move your hand near the radar to drive it</span>
+        <button class="stop" id="stop" hidden>■ STOP</button>
+        <span id="hinttext">wear the dot · move your hand near the radar to drive it</span>
       </div>
     </div>
 
@@ -155,8 +159,16 @@
   setInterval(report, 150);
   vid.addEventListener('play', report); vid.addEventListener('pause', report); vid.addEventListener('seeked', report);
 
-  $('play').addEventListener('click', () => {
-    vid.play().then(()=>{ $('hint').style.opacity = 0; }).catch(()=>{});
+  const stopBtn = $('stop'), playBtn = $('play');
+  playBtn.addEventListener('click', () => {
+    fetch('/start', {method:'POST'}).catch(()=>{});
+    vid.play().then(()=>{ playBtn.hidden = true; stopBtn.hidden = false; $('hinttext').textContent = 'running · move your hand to drive it'; }).catch(()=>{});
+  });
+  stopBtn.addEventListener('click', () => {
+    vid.pause();
+    fetch('/stop', {method:'POST'}).catch(()=>{});
+    stopBtn.hidden = true; playBtn.hidden = false; playBtn.textContent = '▶ Resume';
+    $('hinttext').textContent = 'stopped — dot off, robot halted';
   });
   vid.addEventListener('ended', () => { vid.currentTime = 0; vid.play(); });
 

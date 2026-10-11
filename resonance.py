@@ -31,6 +31,7 @@ state = {                                   # everything the dashboard shows, up
     "dot_status": "—", "robot": "not connected",
 }
 play = {"t": 0.0, "wall": time.time(), "playing": False}
+ctl = {"stopped": False}                    # hard stop: dot off, robot halted
 subs, subs_lock = [], threading.Lock()
 
 
@@ -73,6 +74,19 @@ def control_loop(timeline, dots, radar, robot, args):
                      motion=round(motion, 2), hand=round(getattr(radar, "hand_cm", 0.0), 0) if radar else 0,
                      bpm=timeline["bpm"],
                      radar_status=(radar.status if radar else "simulated"))
+
+        if ctl["stopped"]:                                       # hard stop: everything off, nothing moves
+            master = 0.0
+            state.update(master=0.0, thermal=0.0, beat=False, buzz=False, led=[0, 0, 0])
+            if dots:
+                dots.update(0.0, (0, 0, 0), click=False)
+                state["dot_status"] = dots.status + " · STOPPED"
+            if robot:
+                robot.drive(0.0, False, 0.0)
+                state["robot"] = "stopped"
+            push_event(dict(state))
+            time.sleep(0.1)
+            continue
 
         # The BEAT is carried by vibration + an LED flash (crisp, fast, no sink cost).
         buzz = beat_now and master > 0.25
@@ -218,6 +232,12 @@ class Handler(BaseHTTPRequestHandler):
             d = json.loads(self.rfile.read(n) or b"{}")
             play.update(t=float(d.get("t", 0)), wall=time.time(), playing=bool(d.get("playing")))
             return self._send(200, "application/json", b"{}")
+        if self.path == "/stop":
+            ctl["stopped"] = True
+            return self._send(200, "application/json", b'{"stopped":true}')
+        if self.path == "/start":
+            ctl["stopped"] = False
+            return self._send(200, "application/json", b'{"stopped":false}')
         self._send(404, "text/plain", b"not found")
 
     def _serve_events(self):
