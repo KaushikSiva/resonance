@@ -69,6 +69,7 @@ flowchart LR
 - **Conduct with your hand** — contactless 60 GHz radar reads your motion; raise the energy and everything responds.
 - **A dancing robot** — a MasterPi strafes to the beat over Wi-Fi, with auto-reconnect and a hard **STOP**.
 - **Live VJ dashboard** — every device's readings stream to the browser over Server-Sent Events.
+- **Real-time context** — a live clock + local weather ticker (current temperature & conditions, fetched via **Bright Data**) in the header.
 - **One-command launch** — `./run_internet.sh` (feel + conduct) or `./run_robot.sh` (add the robot).
 
 ---
@@ -111,6 +112,27 @@ Open **http://localhost:8777**, click **Start**, wear the dot, move your hand.
 - The MasterPi's "Wi-Fi kept dropping" — it was actually a `bruno/robot_server.py` service **pegging the Pi's CPU**, starving the network stack. Ping worked, SSH timed out. Killing it fixed everything.
 - The robot wouldn't move on USB-C: the drive motors **brown out the Pi** — they need the battery.
 - One DataFeel dot can't stay cold — the Peltier saturates its tiny heat sink in ~15 s. So RESONANCE is **warm-only**, fired as short hits that let the sink recover.
+
+---
+
+## 🙏 Credits & starting points
+
+**Hardware + their SDKs** (the device drivers build on these):
+- **DataFeel Dot** — [DataFeel/devkit-samples](https://github.com/DataFeel/devkit-samples) (Python SDK for heat/LED/vibration over Modbus).
+- **Infineon XENSIV BGT60TR13C** — Infineon Radar Development Kit SDK (`ifxradarsdk`) for the 60 GHz FMCW radar.
+- **Hiwonder MasterPi** — Hiwonder's on-robot SDK (`common.mecanum`, `ros_robot_controller_sdk`) for the wheels/arm.
+
+**APIs & libraries:**
+- **Bright Data** — proxy path for the live weather fetch · **Open-Meteo** + **ip-api.com** — weather & geolocation.
+- **yt-dlp** — fetch the music video · **OpenCV / NumPy / SciPy** — scene colour, radar DSP, and audio beat detection.
+- Python `http.server` + Server-Sent Events for the dashboard.
+
+**Content:** the demo song is **Pitbull — "Fireball"** (YouTube), used as playback material.
+
+**Written for this project (new work):** `resonance.py`, `resonance.html`, `analyze.py`, the device
+drivers in `thermoscene.py` (`SceneReader`, `RadarBreath`, `Dots`), the dance code
+(`dance_daemon.py`, `robot_dance.py`), and `realtime.py` — i.e. all the glue that makes the three
+devices move together to the music.
 
 ---
 

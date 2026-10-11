@@ -29,6 +29,7 @@ state = {                                   # everything the dashboard shows, up
     "skin": 0.0, "led": [0, 0, 0], "buzz": False, "thermal": 0.0,
     "motion": 0.0, "hand": 0.0, "bpm": 0.0, "radar_status": "—",
     "dot_status": "—", "robot": "not connected",
+    "weather": {"city": "…", "temp_f": None, "condition": "…", "via": ""},
 }
 play = {"t": 0.0, "wall": time.time(), "playing": False}
 ctl = {"stopped": False}                    # hard stop: dot off, robot halted
@@ -42,7 +43,7 @@ def now_t():
 
 # ---------------------------------------------------------------- control loop
 
-def control_loop(timeline, dots, radar, robot, args):
+def control_loop(timeline, dots, radar, robot, live, args):
     grid = timeline["grid_hz"]
     warmth, energy, beats = timeline["warmth"], timeline["energy"], timeline["beats"]
     state["bpm"] = timeline["bpm"]
@@ -123,6 +124,7 @@ def control_loop(timeline, dots, radar, robot, args):
                 robot.stop()                                     # paused -> hold still
             state["robot"] = robot.status
 
+        state["weather"] = live.data
         push_event(dict(state))
         time.sleep(0.05)
 
@@ -348,7 +350,9 @@ def main():
     robot = Robot(args.robot_host, wheels=args.wheels) if args.robot else None
     if robot: print(f"[robot] connecting to {args.robot_host} (wheels={'on' if args.wheels else 'off'})")
 
-    threading.Thread(target=control_loop, args=(tl, dots, radar, robot, args), daemon=True).start()
+    import realtime
+    live = realtime.Live()
+    threading.Thread(target=control_loop, args=(tl, dots, radar, robot, live, args), daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"\n  RESONANCE ready →  http://localhost:{PORT}\n  (put the DataFeel dot on your wrist; move your hand near the radar)\n")
     try:

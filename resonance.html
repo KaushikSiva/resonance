@@ -29,6 +29,10 @@
   .top .sub{color:var(--muted);text-transform:uppercase;letter-spacing:.18em;font-weight:600;font-size:13px}
   .track{margin-left:auto;color:var(--muted);font-size:14px;letter-spacing:.06em}
   .track b{color:var(--fg)}
+  .live-now{margin-left:14px;color:var(--muted);font-size:13px;letter-spacing:.04em;font-family:"JetBrains Mono",monospace}
+  .live-now > span{color:var(--ember)}
+  .live-now::before{content:"";}
+  #liveNow{color:var(--go)}
 
   .grid{display:grid;grid-template-columns:1.6fr 1fr;gap:16px}
   @media (max-width:760px){.grid{grid-template-columns:1fr}}
@@ -89,6 +93,7 @@
     <h1>RESONANCE</h1>
     <span class="sub">feel · conduct · react</span>
     <span class="track">PITBULL — <b>FIREBALL</b></span>
+    <span class="live-now" id="liveNow" title="live via Bright Data">● <span id="clock">--:--</span> · <span id="wx">…</span></span>
   </div>
 
   <div class="grid">
@@ -184,8 +189,15 @@
   let beatFade = 0;
 
   const es = new EventSource('/events');
+  setInterval(() => { const d=new Date();
+    document.getElementById('clock').textContent =
+      d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }, 1000);
+
   es.onmessage = ev => {
     const s = JSON.parse(ev.data);
+    const wx = s.weather || {};
+    document.getElementById('wx').textContent =
+      (wx.temp_f!=null ? wx.temp_f+'°F · '+wx.condition+' · '+wx.city : 'weather offline');
 
     // energy
     $('masterNum').textContent = Math.round(s.master*100);
