@@ -31,7 +31,7 @@ Press `q` in the ThermoScene window to quit. The dots switch off on exit. The do
 
 ## Hardware
 - **DataFeel**: El Jefe controller over USB (CP2102N, 10c4:ea60). SDK in `vendor/devkit-samples` (official DataFeel repo).
-- **Infineon**: XENSIV 60 GHz FMCW radar kit (e.g. BGT60TR13C) over USB. The SDK wheel was pulled from the Radar Development Kit installer. Sit 0.3–1.5 m in front of the radar, facing it, and keep still for about 6 s while it calibrates.
+- **Infineon**: XENSIV 60 GHz FMCW radar kit (e.g. BGT60TR13C) over USB. The SDK wheel was pulled from the Radar Development Kit installer. Sit 0.3–1.5 m in front of the radar, facing it. It needs about 20–30 s of sitting still before it shows **RADAR live**, so start the app before the judge sits down. Until the signal is good enough (quality ≥ 3), breathing is ignored and only the scene drives the dots.
 
 ## 3-minute demo script
 1. **Hook (15 s):** "Videos give you sight and sound. We added touch, and you control it with your breath."

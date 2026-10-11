@@ -22,7 +22,7 @@ from collections import deque
 import cv2
 import mss
 import numpy as np
-from scipy.signal import butter, sosfiltfilt
+from scipy.signal import butter, sosfilt, sosfilt_zi, sosfiltfilt
 
 
 # ---------------------------------------------------------------- screen scene
@@ -114,67 +114,113 @@ class SimBreath(Breath):
 
 
 class RadarBreath(Breath):
-    """Chest motion from an Infineon XENSIV 60 GHz FMCW radar (e.g. BGT60TR13C).
+    """Chest motion from an Infineon XENSIV 60 GHz FMCW radar (BGT60TR13C).
 
-    Range-FFT each frame, lock onto the strongest reflector 0.25-1.5 m away (you),
-    track its phase over time = chest displacement, band-pass to breathing band.
+    Range-FFT each frame on all 3 RX antennas, remove the static scene (desk, laptop),
+    lock onto the 0.3-1.5 m range bin with the most breathing-band motion (your chest),
+    demodulate it linearly (principal axis of the I/Q cloud), band-pass to breathing.
+    .quality is the breathing peak's height over the spectrum median; below ~3 it's noise.
     """
     FPS = 20.0
 
-    def __init__(self):
+    def __init__(self, dev=None):
+        self.bin_m = 3e8 / (2 * 1.5e9)
+        self.buf = deque(maxlen=int(self.FPS * 20))               # 20 s of range profiles
+        self.target, self.quality, self.n = None, 0.0, 0
+        self.sos = butter(2, [0.1, 0.7], btype="band", fs=self.FPS, output="sos")
+        self.status = "RADAR warming up"
+        if dev == "offline":                                      # feed frames with push() yourself
+            return
         from ifxradarsdk.fmcw import DeviceFmcw
         from ifxradarsdk.fmcw.types import FmcwSequenceChirp, FmcwSimpleSequenceConfig
 
-        self.dev = DeviceFmcw()                                   # raises if no radar
+        for attempt in range(3):                                  # first open after a previous run can fail
+            try:
+                self.dev = DeviceFmcw()
+                break
+            except Exception:
+                if attempt == 2:
+                    raise                                         # no radar
+                time.sleep(1.5)
+        import atexit
+        atexit.register(self.dev._close)                          # release it so the next run opens cleanly
         chirp = FmcwSequenceChirp(
             start_frequency_Hz=60e9, end_frequency_Hz=61.5e9,     # 1.5 GHz -> 10 cm bins
             sample_rate_Hz=1e6, num_samples=64,
-            rx_mask=1, tx_mask=1, tx_power_level=31,
+            rx_mask=7, tx_mask=1, tx_power_level=31,
             lp_cutoff_Hz=500000, hp_cutoff_Hz=80000, if_gain_dB=33)
         cfg = FmcwSimpleSequenceConfig(
             frame_repetition_time_s=1 / self.FPS, chirp_repetition_time_s=0.0005,
             num_chirps=32, tdm_mimo=False, chirp=chirp)
         self.dev.set_acquisition_sequence(self.dev.create_simple_sequence(cfg))
-        self.bin_m = 3e8 / (2 * 1.5e9)
-        self.phase = deque(maxlen=int(self.FPS * 20))             # 20 s window
-        self.mag = None
-        self.target = None
-        self.sos = butter(2, [0.1, 0.7], btype="band", fs=self.FPS, output="sos")
-        self.status = "RADAR warming up"
         threading.Thread(target=self._run, daemon=True).start()
 
     def _run(self):
-        win = np.hanning(64)
-        lo, hi = int(0.25 / self.bin_m), int(1.5 / self.bin_m)
-        n = 0
         while True:
             try:
-                frame = self.dev.get_next_frame(timeout_ms=1000)[0][0]   # rx0: chirps x samples
+                frame = self.dev.get_next_frame(timeout_ms=1000)[0]       # rx x chirps x samples
             except Exception as e:
                 self.live, self.status = False, f"RADAR error: {e}"
                 time.sleep(0.5)
                 continue
-            x = frame - frame.mean(axis=1, keepdims=True)
-            prof = np.fft.fft(x * win, axis=1)[:, :32].mean(axis=0)     # complex range profile
-            m = np.abs(prof)
-            self.mag = m if self.mag is None else 0.95 * self.mag + 0.05 * m
-            n += 1
-            if self.target is None or n % int(self.FPS * 5) == 0:       # re-lock every 5 s
-                self.target = lo + int(np.argmax(self.mag[lo:hi]))
-            self.phase.append(np.angle(prof[self.target]))
-            if len(self.phase) < self.FPS * 6:
-                self.status = "RADAR calibrating - sit still"
-                continue
+            self.push(frame)
 
-            disp = np.unwrap(np.array(self.phase))
-            sig = sosfiltfilt(self.sos, disp - disp.mean())
-            self.wave = float(np.clip(sig[-1] / (3 * sig.std() + 1e-9), -1, 1))
-            spec = np.abs(np.fft.rfft(sig * np.hanning(len(sig)), 1024))
-            freqs = np.fft.rfftfreq(1024, 1 / self.FPS)
-            band = (freqs > 0.1) & (freqs < 0.7)
-            self.bpm = float(freqs[band][np.argmax(spec[band])] * 60)
-            self.live = True
-            self.status = f"RADAR live @ {self.target * self.bin_m:.1f} m"
+    def push(self, frame):
+        x = frame - frame.mean(axis=2, keepdims=True)
+        self.buf.append(np.fft.fft(x * np.hanning(x.shape[2]), axis=2)[..., :32].mean(axis=1))  # rx x bins
+        self.n += 1
+        if len(self.buf) < self.FPS * 8:
+            self.status = "RADAR calibrating - sit still"
+            return
+        if self.target is None or self.n % int(self.FPS * 2) == 0:
+            self._relock()
+
+        # stream: project the newest sample on the locked axes, causal band-pass with kept state
+        v = self.buf[-1][:, self.target] - self.static
+        p = sum(sg * (ax[0] * v[rx].real + ax[1] * v[rx].imag)
+                for rx, (ax, sg) in enumerate(zip(self.axes, self.signs)))
+        y, self.zi = sosfilt(self.sos, [p], zi=self.zi)
+        self.out.append(float(y[0]))
+        recent = np.array(self.out)[-int(self.FPS * 10):]
+        self.wave = float(np.clip(y[0] / (1.5 * recent.std() + 1e-12), -1, 1))
+
+        if self.n % int(self.FPS) == 0 and len(self.out) >= self.FPS * 8:     # rate + quality once a second
+            sig = np.array(self.out)
+            spec = np.abs(np.fft.rfft((sig - sig.mean()) * np.hanning(len(sig)), 2048))
+            freqs = np.fft.rfftfreq(2048, 1 / self.FPS)
+            b = (freqs > 0.1) & (freqs < 0.7)
+            self.bpm = float(freqs[b][np.argmax(spec[b])] * 60)
+            self.quality = float(spec[b].max() / (np.median(spec[b]) + 1e-12))
+            self.live = self.quality >= 3
+            where = f"@ {self.target * self.bin_m:.1f} m  q{self.quality:.0f}"
+            self.status = f"RADAR live {where}" if self.live else f"RADAR weak signal {where} - face it, sit still"
+
+    def _relock(self):
+        """Pick the range bin with the most breathing-band motion, and per-antenna I/Q axes."""
+        prof = np.array(self.buf)
+        static = prof.mean(axis=0)
+        dyn = prof - static                                       # drop the desk, laptop, walls
+        lo, hi = round(0.3 / self.bin_m), round(1.5 / self.bin_m) + 1
+        band = sosfiltfilt(self.sos, dyn[:, :, lo:hi], axis=0)
+        energy = (np.abs(band) ** 2).sum(axis=(0, 1))
+        target = lo + int(np.argmax(energy))
+        if self.target is not None and energy[target - lo] < 1.5 * energy[self.target - lo]:
+            target = self.target                                  # only move when clearly better (no hopping)
+
+        axes, projs = [], []
+        for rx in range(dyn.shape[1]):
+            iq = np.stack([dyn[:, rx, target].real, dyn[:, rx, target].imag])
+            ax = np.linalg.svd(iq @ iq.T)[0][:, 0]
+            if target == self.target and np.dot(ax, self.axes[rx]) < 0:
+                ax = -ax                                          # SVD sign is arbitrary: stay consistent
+            axes.append(ax)
+            projs.append(sosfiltfilt(self.sos, ax @ iq))
+        signs = [1.0] + [1.0 if np.dot(projs[0], q) >= 0 else -1.0 for q in projs[1:]]
+
+        if target != self.target:                                 # new spot: restart the stream cleanly
+            self.zi = sosfilt_zi(self.sos) * 0
+            self.out = deque(maxlen=int(self.FPS * 20))
+        self.target, self.static, self.axes, self.signs = target, static[:, target], axes, signs
 
 
 # ---------------------------------------------------------------- DataFeel output
@@ -326,7 +372,8 @@ def main():
         while True:
             raw, cut = scene_reader.read()
             scene_s = 0.85 * scene_s + 0.15 * raw                      # smooth out flicker
-            target = (1 - args.breath_weight) * scene_s + args.breath_weight * breath.wave
+            bw = args.breath_weight if (breath.live or isinstance(breath, SimBreath)) else 0.0   # ignore a noisy radar
+            target = (1 - bw) * scene_s + bw * breath.wave
             thermal = float(np.clip(0.8 * thermal + 0.2 * target, -args.max, args.max))
 
             # LED: orange when hot, blue when cold, brightness rides the breath
