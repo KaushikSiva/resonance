@@ -155,14 +155,32 @@ class Robot:
             self.proc = None
             self.status = "offline"
 
+    def _resolve_host(self):
+        """Find the Pi wherever it is: configured host, the default gateway (on the robot's
+        hotspot the Pi IS the gateway), or common AP IPs. Returns a reachable host or None."""
+        import subprocess
+        cands = [self.host]
+        try:
+            gw = subprocess.run("route -n get default 2>/dev/null | awk '/gateway/{print $2}'",
+                                shell=True, capture_output=True, text=True, timeout=4).stdout.strip()
+            if gw:
+                cands.insert(0, gw)
+        except Exception:
+            pass
+        cands += ["192.168.149.1", "192.168.4.1", "10.0.0.68"]
+        for ip in dict.fromkeys(cands):
+            if subprocess.run(["nc", "-z", "-G", "2", ip, "22"],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+                self.host = ip
+                return ip
+        return None
+
     def _keepalive(self):
         import subprocess
         while True:
             if self.proc is None or self.proc.poll() is not None:
                 self.status = "reconnecting"
-                # only try when the host answers, so we don't hang on a dead pipe
-                if subprocess.run(["nc", "-z", "-G", "2", self.host, "22"],
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+                if self._resolve_host():                          # find the Pi (brock IP or hotspot gateway)
                     self._spawn()
                 else:
                     self.status = "offline (robot not reachable)"
