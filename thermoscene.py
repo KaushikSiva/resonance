@@ -15,6 +15,7 @@ Run:  .venv/bin/python thermoscene.py            (falls back to simulated parts 
 """
 import argparse
 import math
+import os
 import threading
 import time
 from collections import deque
@@ -31,7 +32,7 @@ class SceneReader:
     """Scores the on-screen picture from -1 (icy) to +1 (fiery)."""
 
     def __init__(self, monitor=1, region=None):
-        self.sct = mss.mss()
+        self.sct = getattr(mss, "MSS", mss.mss)()
         if region:
             x, y, w, h = region
             self.box = {"left": x, "top": y, "width": w, "height": h}
@@ -64,6 +65,31 @@ class SceneReader:
         cut = self.prev is not None and float(np.abs(gray - self.prev).mean()) > 40
         self.prev = gray
         return score, cut
+
+
+REGION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".region")
+
+
+def pick_region(monitor=1):
+    """Screenshot the screen, let the user drag a box around the video, save it in screen points."""
+    with getattr(mss, "MSS", mss.mss)() as sct:
+        mon = sct.monitors[monitor]
+        shot = np.ascontiguousarray(np.asarray(sct.grab(mon))[:, :, :3])
+    scale = shot.shape[1] / mon["width"]                          # Retina: pixels per screen point
+    view = 1400 / shot.shape[1]
+    small = cv2.resize(shot, None, fx=view, fy=view)
+    print("Drag a box around the video, then press ENTER (c = cancel).")
+    x, y, w, h = cv2.selectROI("Pick the video area", small, showCrosshair=False)
+    cv2.destroyWindow("Pick the video area")
+    cv2.waitKey(1)
+    if w < 20 or h < 20:
+        raise SystemExit("no area picked")
+    k = 1 / (view * scale)
+    region = [mon["left"] + round(x * k), mon["top"] + round(y * k), round(w * k), round(h * k)]
+    with open(REGION_FILE, "w") as f:
+        f.write(" ".join(map(str, region)))
+    print(f"[region] saved {region} -> {REGION_FILE}")
+    return region
 
 
 class VideoScene(SceneReader):
@@ -346,6 +372,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--monitor", type=int, default=1, help="screen to watch (1 = main)")
     ap.add_argument("--region", type=int, nargs=4, metavar=("X", "Y", "W", "H"), help="watch only this area, e.g. the YouTube player")
+    ap.add_argument("--pick", action="store_true", help="drag a box around the video on screen (remembered in .region)")
+    ap.add_argument("--full-screen", action="store_true", help="ignore the saved .region and watch the whole screen")
     ap.add_argument("--max", type=float, default=0.8, help="max thermal intensity 0..1 (default 0.8)")
     ap.add_argument("--breath-weight", type=float, default=0.3, help="how much breathing shifts temperature")
     ap.add_argument("--sim-breath", action="store_true", help="skip the radar, use a fake 14 bpm breath")
@@ -354,6 +382,13 @@ def main():
     ap.add_argument("--record", metavar="OUT.mp4", help="save the window (scene + HUD) to a video for YouTube")
     args = ap.parse_args()
 
+    if args.pick:
+        args.region = pick_region(args.monitor)
+    elif not args.region and not args.full_screen and not args.video and os.path.exists(REGION_FILE):
+        args.region = [int(v) for v in open(REGION_FILE).read().split()]
+        print(f"[region] watching saved area {args.region} (--pick to change, --full-screen to ignore)")
+    elif not args.region and not args.video:
+        print("[region] watching the WHOLE screen - wallpaper and windows count too. Use --pick to watch just the video.")
     scene_reader = VideoScene(args.video) if args.video else SceneReader(args.monitor, args.region)
     breath = SimBreath()
     if not args.sim_breath:

@@ -3,3 +3,4 @@ vendor/
 clips/*
 !clips/test_fire_ocean_snow.mp4
 __pycache__/
+.region

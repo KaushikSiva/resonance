@@ -13,7 +13,8 @@ The colours on screen and your breathing (read by an Infineon 60 GHz radar) driv
 
 ```bash
 cd ~/thermoscene
-.venv/bin/python thermoscene.py                       # whole main screen
+.venv/bin/python thermoscene.py --pick                # drag a box around the video (remembered)
+.venv/bin/python thermoscene.py                       # reuse the saved box (or whole screen if none)
 .venv/bin/python thermoscene.py --region 100 200 1280 720   # only the YouTube player area
 .venv/bin/python thermoscene.py --sim-breath          # no radar: fake 14 bpm breathing
 .venv/bin/python thermoscene.py --no-dots             # preview the display without the dots
@@ -40,7 +41,7 @@ Press `q` in the ThermoScene window to quit. The dots switch off on exit. The do
 cd ~/thermoscene && python3 -m http.server 8765    # then open http://localhost:8765/demo.html
 ```
 
-Run `thermoscene.py` (whole screen), press play, then press **f** for full screen.
+Run `thermoscene.py --pick` and drag a box around the video player (it's saved in `.region` and reused next time). **Don't watch the whole screen**: wallpaper, menus and the ThermoScene window all count as "cool" and drown out the video. In testing, the dot stayed at a 30 °C cooling target even with lava playing.
 
 ## 3-minute demo script
 1. **Hook (15 s):** "Videos give you sight and sound. We added touch, and you control it with your breath."
