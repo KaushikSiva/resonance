@@ -69,7 +69,7 @@ flowchart LR
 - **Conduct with your hand** — contactless 60 GHz radar reads your motion; raise the energy and everything responds.
 - **A dancing robot** — a MasterPi strafes to the beat over Wi-Fi, with auto-reconnect and a hard **STOP**.
 - **Live VJ dashboard** — every device's readings stream to the browser over Server-Sent Events.
-- **Real-time context** — a live clock + local weather ticker (current temperature & conditions, fetched via **Bright Data**) in the header.
+- **Real-time context** — a live clock, local weather, and the song's live YouTube view count in the header. Fetches go **directly by default**, or through **Bright Data** if a proxy is configured (`BRIGHTDATA_PROXY`).
 - **One-command launch** — `./run_internet.sh` (feel + conduct) or `./run_robot.sh` (add the robot).
 
 ---
@@ -123,7 +123,7 @@ Open **http://localhost:8777**, click **Start**, wear the dot, move your hand.
 - **Hiwonder MasterPi** — Hiwonder's on-robot SDK (`common.mecanum`, `ros_robot_controller_sdk`) for the wheels/arm.
 
 **APIs & libraries:**
-- **Bright Data** — proxy path for the live weather fetch · **Open-Meteo** + **ip-api.com** — weather & geolocation.
+- **Open-Meteo** + **ip-api.com** — weather & geolocation (fetched directly; optional **Bright Data** proxy path is wired but not keyed).
 - **yt-dlp** — fetch the music video · **OpenCV / NumPy / SciPy** — scene colour, radar DSP, and audio beat detection.
 - Python `http.server` + Server-Sent Events for the dashboard.
 
