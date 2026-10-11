@@ -149,6 +149,14 @@
 
 <script>
   const vid = document.getElementById('vid');
+  // ?t=SECONDS → autoplay muted at that time (for screenshots/previews)
+  (() => { const t = new URLSearchParams(location.search).get('t');
+    if (t === null) return;
+    vid.muted = true;
+    const show = () => { vid.currentTime = +t || 0; vid.pause();   // freeze on this frame (for screenshots)
+      const h = document.getElementById('hint'); if (h) h.style.opacity = 0; };
+    vid.addEventListener('loadeddata', show, { once: true });
+    vid.addEventListener('seeked', () => vid.pause(), { once: true }); })();
   const $ = id => document.getElementById(id);
 
   // tell the server where playback is, so the dot fires in sync with the audio
