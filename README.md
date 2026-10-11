@@ -33,6 +33,15 @@ Press `q` in the ThermoScene window to quit. The dots switch off on exit. The do
 - **DataFeel**: El Jefe controller over USB (CP2102N, 10c4:ea60). SDK in `vendor/devkit-samples` (official DataFeel repo).
 - **Infineon**: XENSIV 60 GHz FMCW radar kit (e.g. BGT60TR13C) over USB. The SDK wheel was pulled from the Radar Development Kit installer. Sit 0.3–1.5 m in front of the radar, facing it. It needs about 20–30 s of sitting still before it shows **RADAR live**, so start the app before the judge sits down. Until the signal is good enough (quality ≥ 3), breathing is ignored and only the scene drives the dots.
 
+## Demo page
+`demo.html` plays the demo video ("FPV Drone Vs VOLCANO" by Danny Mcgee, embedded from YouTube) with a heat map from ThermoScene's scorer, jump-to chapters, and the predicted dot temperature. YouTube embeds won't play from `file://`, so serve it:
+
+```bash
+cd ~/thermoscene && python3 -m http.server 8765    # then open http://localhost:8765/demo.html
+```
+
+Run `thermoscene.py` (whole screen), press play, then press **f** for full screen.
+
 ## 3-minute demo script
 1. **Hook (15 s):** "Videos give you sight and sound. We added touch, and you control it with your breath."
 2. **Fire to snow (45 s):** a judge wears the dots and you play a clip that cuts from a campfire to a blizzard. They feel heat, then a click at the cut, then cold.

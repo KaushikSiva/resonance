@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ThermoScene</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0c0d10; --panel: #15171c; --line: #262a33; --text: #eceef2; --muted: #9aa1ad;
+    --hot: #ff6a1a; --hot-2: #ffb347; --cold: #2f8cff; --cold-2: #9fd3ff; --ok: #4ade80;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f6f5f2; --panel: #ffffff; --line: #e2e0da; --text: #16171a; --muted: #5d636e;
+      --hot: #e5530a; --hot-2: #c97a00; --cold: #1f6fe0; --cold-2: #2a7bd6; --ok: #15803d;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c0d10; --panel: #15171c; --line: #262a33; --text: #eceef2; --muted: #9aa1ad;
+    --hot: #ff6a1a; --hot-2: #ffb347; --cold: #2f8cff; --cold-2: #9fd3ff; --ok: #4ade80;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 "Space Grotesk", system-ui, sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
+  code, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .86em; }
+
+  header { padding: 40px 0 20px; }
+  .eyebrow { color: var(--muted); font-size: 13px; letter-spacing: .14em; text-transform: uppercase; }
+  h1 { font-size: clamp(40px, 8vw, 76px); line-height: 1; margin: 10px 0 12px; letter-spacing: -.03em; }
+  h1 .h { background: linear-gradient(90deg, var(--hot), var(--hot-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  h1 .c { background: linear-gradient(90deg, var(--cold-2), var(--cold)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { font-size: clamp(17px, 2.4vw, 21px); color: var(--muted); max-width: 720px; margin: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  .chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 5px 12px; font-size: 13px; color: var(--muted); }
+
+  .stage { position: relative; border-radius: 16px; overflow: hidden; background: #000; aspect-ratio: 16 / 9;
+           box-shadow: 0 0 0 3px var(--glow, transparent), 0 0 60px -10px var(--glow, transparent); transition: box-shadow .6s; }
+  .stage > div, .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+
+  .readout { display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; margin: 16px 0 8px; }
+  .temp { font: 600 clamp(26px, 5vw, 40px)/1 "JetBrains Mono", monospace; min-width: 5.5ch; }
+  .meter { height: 12px; border-radius: 99px; background: linear-gradient(90deg, var(--cold), #6b6f7a 50%, var(--hot)); position: relative; }
+  .meter i { position: absolute; top: -6px; width: 6px; height: 24px; border-radius: 3px; background: var(--text); transform: translateX(-3px); transition: left .4s; }
+  .state { font-weight: 700; letter-spacing: .08em; min-width: 5ch; text-align: right; }
+
+  .timeline { display: flex; height: 34px; border-radius: 8px; overflow: hidden; cursor: pointer; position: relative; border: 1px solid var(--line); }
+  .timeline span { flex: 1; }
+  .timeline .head { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); left: 0; pointer-events: none; }
+  .tl-cap { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; margin-top: 6px; gap: 12px; flex-wrap: wrap; }
+
+  .chapters { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; }
+  .chapters button { font: inherit; font-size: 14px; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+                     border-radius: 10px; padding: 7px 12px; cursor: pointer; }
+  .chapters button:hover { border-color: var(--muted); }
+  .chapters .hot { border-left: 4px solid var(--hot); } .chapters .cold { border-left: 4px solid var(--cold); }
+
+  section { padding: 44px 0 0; }
+  h2 { font-size: clamp(24px, 4vw, 32px); margin: 0 0 16px; letter-spacing: -.01em; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .card h3 { margin: 6px 0 6px; font-size: 18px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  .tag { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 18px 0 0; font-size: 14px; }
+  .flow b { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-weight: 500; }
+  .flow em { color: var(--muted); font-style: normal; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .stat .n { font: 600 28px/1.1 "JetBrains Mono", monospace; }
+  .stat .l { color: var(--muted); font-size: 14px; margin-top: 4px; }
+
+  ol.steps { padding-left: 20px; margin: 0; }
+  ol.steps li { margin: 0 0 12px; }
+  pre { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow-x: auto; margin: 8px 0 0; }
+
+  footer { color: var(--muted); font-size: 14px; padding: 48px 0 40px; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Hackathon demo · Infineon × DataFeel</div>
+    <h1>Feel what you <span class="h">wa</span><span class="c">tch.</span></h1>
+    <p class="lede">ThermoScene reads the scene on screen and your breathing, then turns them into heat, cold, light and vibration on your skin. Lava warms you, ice chills you, and your breath sets the rhythm.</p>
+    <div class="chips">
+      <span class="chip">Infineon XENSIV BGT60TR13C · 60 GHz radar</span>
+      <span class="chip">DataFeel Dot · heat / cold / LED / vibration</span>
+      <span class="chip">Python · OpenCV · ~500 lines</span>
+    </div>
+  </header>
+
+  <div class="stage" id="stage"><div id="player"></div></div>
+
+  <div class="readout" aria-live="polite">
+    <div class="temp" id="temp">33 °C</div>
+    <div class="meter"><i id="needle" style="left:50%"></i></div>
+    <div class="state" id="state">READY</div>
+  </div>
+
+  <div class="timeline" id="timeline" title="Click to jump"><div class="head" id="head"></div></div>
+  <div class="tl-cap">
+    <span>Heat map from ThermoScene's scene scorer, run on this video's preview frames. Click to jump.</span>
+    <span class="mono" id="clock">0:00 / 2:30</span>
+  </div>
+
+  <div class="chapters">
+    <button class="hot" data-t="0">🔥 0:00 Into the crater</button>
+    <button class="cold" data-t="10">❄ 0:10 Grey sky</button>
+    <button class="hot" data-t="25">🔥 0:25 Lava dive</button>
+    <button class="cold" data-t="65">❄ 1:05 Back with the pilot</button>
+    <button class="hot" data-t="102">🔥 1:42 Lava river</button>
+    <button class="cold" data-t="135">❄ 2:15 Cool down</button>
+  </div>
+
+  <section>
+    <h2>How it works</h2>
+    <div class="cards">
+      <div class="card">
+        <div class="tag">Sees</div>
+        <h3>The scene</h3>
+        <p>Captures the screen several times a second. Reds, oranges and yellows count as warm; blues, cyans and icy whites count as cold. A hard cut fires a vibration click.</p>
+      </div>
+      <div class="card">
+        <div class="tag">Senses · Infineon</div>
+        <h3>Your breathing</h3>
+        <p>The 60 GHz radar measures your chest moving from about half a metre away, with nothing to wear. It filters out the desk and walls, combines 3 antennas and tracks your breaths per minute.</p>
+      </div>
+      <div class="card">
+        <div class="tag">Feels · DataFeel</div>
+        <h3>Heat &amp; cold on skin</h3>
+        <p>The scene sets a target skin temperature from 28 to 38 °C, and each breath out nudges it warmer. The LED glows orange or blue and pulses with your breath.</p>
+      </div>
+    </div>
+    <div class="flow">
+      <b>Screen</b><em>+</em><b>Radar breath</b><em>→</em><b>Mixer</b><em>→</em><b>Dot target °C</b><em>→</em><b>Skin</b>
+    </div>
+  </section>
+
+  <section>
+    <h2>Measured on the real hardware</h2>
+    <div class="stats">
+      <div class="stat"><div class="n">35→39°</div><div class="l">Dot heating in 3 s</div></div>
+      <div class="stat"><div class="n">38→32°</div><div class="l">Dot cooling in 8 s</div></div>
+      <div class="stat"><div class="n">28–38°</div><div class="l">Safe target range; cuts out above 40.5 °C</div></div>
+      <div class="stat"><div class="n">0.3 m</div><div class="l">Radar locked on the chest, ~7 breaths/min</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Run the demo</h2>
+    <ol class="steps">
+      <li>Strap the DataFeel dot on, sit about 50 cm in front of the radar, and start ThermoScene. Give the radar about 30 s to show <b>RADAR live</b>.
+        <pre><code>cd ~/thermoscene && .venv/bin/python thermoscene.py</code></pre></li>
+      <li>Press play above, then go full screen (<b>f</b>) so the whole screen is the video.</li>
+      <li>Feel the lava, feel the ice, then breathe slowly and feel the dot follow.</li>
+    </ol>
+  </section>
+
+  <footer>
+    Demo video: <a href="https://www.youtube.com/watch?v=YVKhcPm3T5A" target="_blank" rel="noopener">“FPV Drone Vs VOLCANO” by Danny Mcgee</a>, embedded from YouTube.
+    Hardware: Infineon XENSIV radar kit, DataFeel Dev Kit.
+  </footer>
+</div>
+
+<script>
+  const VIDEO = "YVKhcPm3T5A", DURATION = 150;
+  // ThermoScene scene scores (-1 icy … +1 fiery) for this video's storyboard frames: [seconds, score]
+  const SCAN = [[0,1],[2,1],[4,1],[6,1],[8,-.43],[10,-.64],[12,-.72],[15,-.81],[17,-.8],[19,-.12],[21,-.79],[23,-.65],[25,.96],[27,.96],[29,1],[31,1],[33,1],[35,1],[38,.97],[40,.96],[42,.4],[44,.99],[46,1],[48,1],[50,-1],[52,.92],[54,.86],[56,.27],[58,-.28],[60,-.17],[63,.08],[65,-.66],[67,-.44],[69,-.74],[71,-.72],[73,-.86],[75,-.6],[77,-.8],[79,.06],[81,-.12],[83,-.04],[85,.12],[88,.19],[90,.09],[92,-.36],[94,-.53],[96,-.41],[98,-.76],[100,-.71],[102,.89],[104,.96],[106,.98],[108,.89],[110,.33],[113,1],[115,1],[117,1],[119,1],[121,1],[123,.8],[125,-.99],[127,.65],[129,.69],[131,.66],[133,.48],[135,-.82],[138,-.8],[140,-.92],[142,-.91],[144,-.87],[146,-.01],[148,.57]];
+
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const mix = (a, b, t) => { const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+    const [x, y] = [p(a), p(b)]; return `rgb(${x.map((v, i) => Math.round(v + (y[i] - v) * t)).join(",")})`; };
+  const colorFor = s => s >= 0 ? mix("#6b6f7a", css("--hot"), s) : mix("#6b6f7a", css("--cold"), -s);
+
+  const tl = document.getElementById("timeline"), head = document.getElementById("head");
+  function paintTimeline() {
+    tl.querySelectorAll("span").forEach(e => e.remove());
+    SCAN.forEach(([, s]) => { const e = document.createElement("span"); e.style.background = colorFor(s); tl.insertBefore(e, head); });
+  }
+  paintTimeline();
+  matchMedia("(prefers-color-scheme: light)").addEventListener("change", paintTimeline);
+
+  const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  const scoreAt = t => { let best = SCAN[0]; for (const p of SCAN) if (p[0] <= t) best = p; return best[1]; };
+
+  // Mirror the app's mapping: smoothed scene -> 28..38 °C target (breath excluded here)
+  let smooth = 0;
+  function render(t) {
+    smooth += (scoreAt(t) - smooth) * 0.35;
+    const target = 33 + smooth * 5;
+    document.getElementById("temp").textContent = `${target.toFixed(0)} °C`;
+    document.getElementById("needle").style.left = `${(smooth + 1) * 50}%`;
+    const st = document.getElementById("state");
+    st.textContent = smooth > 0.15 ? "HOT" : smooth < -0.15 ? "COLD" : "—";
+    st.style.color = smooth > 0.15 ? css("--hot") : smooth < -0.15 ? css("--cold") : css("--muted");
+    document.getElementById("stage").style.setProperty("--glow", Math.abs(smooth) > 0.15 ? colorFor(smooth) : "transparent");
+    head.style.left = `${Math.min(100, t / DURATION * 100)}%`;
+    document.getElementById("clock").textContent = `${fmt(t)} / ${fmt(DURATION)}`;
+  }
+
+  let player;
+  function seek(t) { if (player && player.seekTo) { player.seekTo(t, true); player.playVideo(); } }
+  tl.addEventListener("click", e => { const r = tl.getBoundingClientRect(); seek((e.clientX - r.left) / r.width * DURATION); });
+  document.querySelectorAll(".chapters button").forEach(b => b.addEventListener("click", () => seek(+b.dataset.t)));
+
+  window.onYouTubeIframeAPIReady = () => {
+    player = new YT.Player("player", {
+      videoId: VIDEO,
+      playerVars: { rel: 0, modestbranding: 1, playsinline: 1, origin: location.origin },
+    });
+    setInterval(() => { if (player.getCurrentTime) render(player.getCurrentTime()); }, 250);
+  };
+  const s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api"; document.head.appendChild(s);
+</script>
+</body>
+</html>
