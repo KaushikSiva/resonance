@@ -93,7 +93,7 @@
     <h1>RESONANCE</h1>
     <span class="sub">feel · conduct · react</span>
     <span class="track">PITBULL — <b>FIREBALL</b></span>
-    <span class="live-now" id="liveNow" title="live via Bright Data">● <span id="clock">--:--</span> · <span id="wx">…</span></span>
+    <span class="live-now" id="liveNow" title="live via Bright Data">● <span id="clock">--:--</span> · <span id="wx">…</span> · <span id="views">…</span></span>
   </div>
 
   <div class="grid">
@@ -198,6 +198,9 @@
     const wx = s.weather || {};
     document.getElementById('wx').textContent =
       (wx.temp_f!=null ? wx.temp_f+'°F · '+wx.condition+' · '+wx.city : 'weather offline');
+    const v = wx.views;
+    document.getElementById('views').textContent =
+      (v!=null ? (v>=1e6 ? (v/1e6).toFixed(0)+'M' : (v/1e3).toFixed(0)+'K')+' plays' : '');
 
     // energy
     $('masterNum').textContent = Math.round(s.master*100);
