@@ -38,11 +38,18 @@ def _get(url, timeout=6):
 
 
 def _locate():
-    try:
-        d = _get("http://ip-api.com/json/?fields=lat,lon,city,regionName")
-        return d["lat"], d["lon"], d.get("city") or d.get("regionName") or "here"
-    except Exception:
-        return 37.7749, -122.4194, "San Francisco"           # sensible default (SF)
+    # Prefer an explicit location (env), then default to SF. IP geolocation is unreliable
+    # behind venue Wi-Fi / VPNs (it put us in Chicago), so it's opt-in only.
+    if os.environ.get("WEATHER_LAT") and os.environ.get("WEATHER_LON"):
+        return (float(os.environ["WEATHER_LAT"]), float(os.environ["WEATHER_LON"]),
+                os.environ.get("WEATHER_CITY", "here"))
+    if os.environ.get("WEATHER_IP_GEO") == "1":
+        try:
+            d = _get("http://ip-api.com/json/?fields=lat,lon,city,regionName")
+            return d["lat"], d["lon"], d.get("city") or d.get("regionName") or "here"
+        except Exception:
+            pass
+    return 37.7749, -122.4194, "San Francisco"               # SF Tech Week default
 
 
 def fetch():
