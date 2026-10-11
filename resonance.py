@@ -126,12 +126,13 @@ class Robot:
 
     def _spawn(self):
         import subprocess
-        env = "WHEELS=1 " if self.wheels else ""
-        cmd = ["ssh", "-i", self.key, "-o", "StrictHostKeyChecking=no",
-               "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=6",
-               "-o", "ServerAliveInterval=3", "-o", "ServerAliveCountMax=2",
-               "-o", "BatchMode=yes", f"{self.user}@{self.host}",
-               f"{env}python3 -u /tmp/dance_daemon.py"]
+        opts = ["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "ConnectTimeout=6", "-o", "BatchMode=yes"]
+        daemon = os.path.join(HERE, "dance_daemon.py")
+        subprocess.run(["scp", "-i", self.key, *opts, daemon, f"{self.user}@{self.host}:/tmp/dance_daemon.py"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)   # push latest dance
+        cmd = ["ssh", "-i", self.key, *opts, "-o", "ServerAliveInterval=3", "-o", "ServerAliveCountMax=2",
+               f"{self.user}@{self.host}", "cd /home/pi/MasterPi && python3 -u /tmp/dance_daemon.py"]
         try:
             self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                          stderr=subprocess.DEVNULL, text=True, bufsize=1)
