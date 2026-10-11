@@ -307,7 +307,7 @@ class Dots:
 
     # The dots run in the firmware's closed-loop skin-temperature mode, not raw power:
     # raw power kept climbing (43 C after two heat pulses) and saturated the heat sink.
-    NEUTRAL_C, SPAN_C = 33.0, 5.0              # thermal -max..+max  ->  28..38 C
+    NEUTRAL_C, SPAN_C = 32.0, 7.0              # thermal -max..+max  ->  25..39 C (wider = actually felt)
     SKIN_LIMIT_C, SINK_LIMIT_C = 40.5, 48.0    # hard cut-outs; resume below 38 / 42
 
     def _target(self, d, temp):
@@ -413,7 +413,8 @@ def main():
     ap.add_argument("--auto", action="store_true", help="find the playing video on screen by itself (start playback first)")
     ap.add_argument("--pick", action="store_true", help="drag a box around the video on screen (remembered in .region)")
     ap.add_argument("--full-screen", action="store_true", help="ignore the saved .region and watch the whole screen")
-    ap.add_argument("--max", type=float, default=0.8, help="max thermal intensity 0..1 (default 0.8)")
+    ap.add_argument("--max", type=float, default=1.0, help="max thermal intensity 0..1 (default 1.0 = full range)")
+    ap.add_argument("--dwell", type=float, default=8.0, help="seconds to hold hot/cold before it may switch (default 8)")
     ap.add_argument("--breath-weight", type=float, default=0.3, help="how much breathing shifts temperature")
     ap.add_argument("--sim-breath", action="store_true", help="skip the radar, use a fake 14 bpm breath")
     ap.add_argument("--no-dots", action="store_true", help="preview only, don't drive DataFeel")
@@ -452,6 +453,7 @@ def main():
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, _stop)                          # killed -> same clean shutdown as Ctrl+C
     scene_s, thermal = 0.0, 0.0
+    mode, mode_since = 0, time.time()          # -1 cold / 0 neutral / +1 hot, committed & held
     history = deque(maxlen=200)
     writer = None
     if not args.no_hud:
@@ -460,10 +462,16 @@ def main():
     try:
         while True:
             raw, cut = scene_reader.read()
-            scene_s = 0.85 * scene_s + 0.15 * raw                      # smooth out flicker
+            scene_s = 0.9 * scene_s + 0.1 * raw                        # smooth out flicker
+            # Commit to hot/cold and HOLD: the dot is slow, so chasing every cut never reaches a felt
+            # temperature. Pick a direction, drive it fully, and don't flip faster than --dwell seconds.
+            now = time.time()
+            want = 1 if scene_s > 0.25 else -1 if scene_s < -0.25 else mode   # dead zone keeps current mode
+            if want != mode and now - mode_since >= args.dwell:
+                mode, mode_since = want, now
             bw = args.breath_weight if (breath.live or isinstance(breath, SimBreath)) else 0.0   # ignore a noisy radar
-            target = (1 - bw) * scene_s + bw * breath.wave
-            thermal = float(np.clip(0.8 * thermal + 0.2 * target, -args.max, args.max))
+            base = float(mode) * args.max                              # fully commit, not proportional
+            thermal = float(np.clip(base + bw * breath.wave * 0.25, -args.max, args.max))
 
             # LED: orange when hot, blue when cold, brightness rides the breath
             glow = 0.35 + 0.65 * (breath.wave + 1) / 2
