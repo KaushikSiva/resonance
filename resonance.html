@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RESONANCE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  /* Layout: a stage (video) on the left, a stack of live device meters on the right; collapses to one column on phones. */
+  :root{
+    --bg:#0a0607; --panel:#15100f; --panel-2:#1f1715; --line:#2e2320;
+    --fg:#f7ece6; --muted:#a8968d;
+    --fire:#ff5a1f; --fire-2:#ffb347; --ember:#ffd98a; --cool:#3fa9ff; --go:#49e08b;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:"Barlow Condensed",system-ui,sans-serif;font-size:16px}
+  body{min-height:100%;padding:16px;padding-block:18px}
+  .mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+
+  .top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+  h1{font-family:"Anton",Impact,sans-serif;font-weight:400;letter-spacing:.04em;margin:0;
+    font-size:clamp(34px,6vw,60px);line-height:.9;
+    background:linear-gradient(92deg,var(--fire),var(--fire-2) 60%,var(--ember));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .top .sub{color:var(--muted);text-transform:uppercase;letter-spacing:.18em;font-weight:600;font-size:13px}
+  .track{margin-left:auto;color:var(--muted);font-size:14px;letter-spacing:.06em}
+  .track b{color:var(--fg)}
+
+  .grid{display:grid;grid-template-columns:1.6fr 1fr;gap:16px}
+  @media (max-width:760px){.grid{grid-template-columns:1fr}}
+
+  .stage{position:relative;border-radius:16px;overflow:hidden;background:#000;
+    border:1px solid var(--line);box-shadow:0 0 0 1px #0006, 0 24px 60px -24px #000;
+    min-width:0}
+  .stage video{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#000}
+  .stage .glow{position:absolute;inset:0;pointer-events:none;mix-blend-mode:screen;opacity:0;transition:opacity .12s}
+  .stage .beat{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 0 0 var(--fire);transition:box-shadow .09s}
+  .stage .hint{position:absolute;left:0;right:0;bottom:0;padding:18px 16px 14px;
+    background:linear-gradient(transparent,#000a);display:flex;gap:10px;align-items:center;font-size:14px;color:var(--ember)}
+  .play{appearance:none;border:0;cursor:pointer;font:inherit;font-weight:700;
+    background:var(--fire);color:#160a04;border-radius:999px;padding:9px 18px;letter-spacing:.05em;text-transform:uppercase}
+  .play:hover{background:var(--fire-2)}
+
+  .rail{display:flex;flex-direction:column;gap:12px;min-width:0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 15px}
+  .card h2{margin:0 0 9px;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+    display:flex;align-items:center;gap:8px;font-weight:700}
+  .dot-i{width:8px;height:8px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 0 transparent}
+  .dot-i.on{background:var(--go);box-shadow:0 0 10px var(--go)}
+
+  /* big energy meter */
+  .energy .big{font-family:"Anton",sans-serif;font-size:52px;line-height:.9;letter-spacing:.02em}
+  .bar{height:14px;border-radius:999px;background:var(--panel-2);overflow:hidden;position:relative;border:1px solid var(--line)}
+  .bar > i{display:block;height:100%;width:0%;border-radius:999px;
+    background:linear-gradient(90deg,var(--fire),var(--fire-2),var(--ember));transition:width .1s linear}
+  .bar.cool > i{background:linear-gradient(90deg,#1c6fbf,var(--cool))}
+  .row{display:flex;align-items:center;gap:10px}
+  .row + .row{margin-top:9px}
+  .row .lab{width:64px;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.08em}
+  .row .val{margin-left:auto;font-size:15px}
+
+  .thermo{display:flex;align-items:center;gap:12px}
+  .gauge{flex:1;height:16px;border-radius:999px;position:relative;border:1px solid var(--line);
+    background:linear-gradient(90deg,#2a2320 0%,#2a2320 48%,#5a2a12 72%,var(--fire) 100%)}
+  .gauge > i{position:absolute;top:-4px;width:5px;height:22px;border-radius:3px;background:#fff;left:0%;transition:left .15s}
+  .swatch{width:34px;height:34px;border-radius:9px;border:1px solid #fff2;background:#000;transition:background .08s,box-shadow .08s}
+  .tag{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+  .tag.hot{color:var(--ember);border-color:#5a3a12;background:#2a1709}
+  .tag.live{color:var(--go);border-color:#1f5a3a;background:#0c2417}
+  .buzz{font-family:"Anton",sans-serif;font-size:22px;color:var(--muted);transition:color .06s,transform .06s}
+  .buzz.on{color:var(--fire);transform:scale(1.12)}
+
+  .status{color:var(--muted);font-size:13px;margin-top:8px;min-height:1.2em}
+  .robot .soon{color:var(--muted);font-size:14px;line-height:1.5}
+  footer{color:var(--muted);font-size:12.5px;margin-top:14px;letter-spacing:.04em}
+  footer b{color:var(--ember)}
+</style>
+</head>
+<body>
+  <div class="top">
+    <h1>RESONANCE</h1>
+    <span class="sub">feel · conduct · react</span>
+    <span class="track">PITBULL — <b>FIREBALL</b></span>
+  </div>
+
+  <div class="grid">
+    <div class="stage">
+      <video id="vid" src="/video.mp4" playsinline preload="auto"></video>
+      <div class="glow" id="glow"></div>
+      <div class="beat" id="beatring"></div>
+      <div class="hint" id="hint">
+        <button class="play" id="play">▶ Start the show</button>
+        <span>wear the dot · move your hand near the radar to drive it</span>
+      </div>
+    </div>
+
+    <div class="rail">
+      <div class="card energy">
+        <h2><span class="dot-i on"></span>Energy · beat × you</h2>
+        <div class="row" style="align-items:flex-end;gap:14px">
+          <div class="big mono" id="masterNum">0</div>
+          <div style="flex:1">
+            <div class="bar"><i id="masterBar"></i></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span class="dot-i" id="dotDot"></span>DataFeel · your skin</h2>
+        <div class="thermo">
+          <div class="gauge"><i id="tempNeedle"></i></div>
+          <div class="swatch" id="led"></div>
+        </div>
+        <div class="row">
+          <span class="tag" id="tempTag">—</span>
+          <span class="buzz" id="buzz">✦ buzz</span>
+          <span class="val mono" id="skin">33.0°C</span>
+        </div>
+        <div class="status mono" id="dotStatus">connecting…</div>
+      </div>
+
+      <div class="card">
+        <h2><span class="dot-i" id="radDot"></span>Infineon radar · you</h2>
+        <div class="row"><span class="lab">motion</span>
+          <div class="bar" style="flex:1"><i id="motionBar"></i></div>
+          <span class="val mono" id="motionNum">0.00</span></div>
+        <div class="row"><span class="lab">tempo</span>
+          <span class="val mono" id="bpm">— bpm</span></div>
+        <div class="status mono" id="radStatus">connecting…</div>
+      </div>
+
+      <div class="card robot">
+        <h2><span class="dot-i" id="robDot"></span>MasterPi · performer</h2>
+        <div class="soon" id="robot">Not connected. Finish the SSH link and the robot dances to the same energy — spins and arm on the beat, wilder as you push the meter up.</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>Warm hits fire on the beat and scale with your motion. Cold is skipped by design — the dot's heat sink only shines warm. <b>Move your hand</b> to drive the whole show.</footer>
+
+<script>
+  const vid = document.getElementById('vid');
+  const $ = id => document.getElementById(id);
+
+  // tell the server where playback is, so the dot fires in sync with the audio
+  function report(){
+    fetch('/time', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({t: vid.currentTime, playing: !vid.paused && !vid.ended})}).catch(()=>{});
+  }
+  setInterval(report, 150);
+  vid.addEventListener('play', report); vid.addEventListener('pause', report); vid.addEventListener('seeked', report);
+
+  $('play').addEventListener('click', () => {
+    vid.play().then(()=>{ $('hint').style.opacity = 0; }).catch(()=>{});
+  });
+  vid.addEventListener('ended', () => { vid.currentTime = 0; vid.play(); });
+
+  const clamp = (x,a,b)=>Math.max(a,Math.min(b,x));
+  let beatFade = 0;
+
+  const es = new EventSource('/events');
+  es.onmessage = ev => {
+    const s = JSON.parse(ev.data);
+
+    // energy
+    $('masterNum').textContent = Math.round(s.master*100);
+    $('masterBar').style.width = (s.master*100)+'%';
+
+    // video glow follows warmth + energy
+    const warm = clamp((s.warmth+1)/2,0,1);
+    const g = $('glow');
+    g.style.opacity = (0.15 + 0.55*s.energy);
+    g.style.background = `radial-gradient(60% 70% at 50% 60%, rgba(${Math.round(120+135*warm)},${Math.round(60+60*warm)},20,.9), transparent 70%)`;
+
+    // beat ring flash
+    if(s.beat) beatFade = 1;
+    beatFade *= 0.8;
+    $('beatring').style.boxShadow = `inset 0 0 ${30*beatFade}px ${6*beatFade}px rgba(255,90,31,${0.7*beatFade})`;
+
+    // DataFeel
+    const skin = s.skin || 33;
+    $('skin').textContent = skin.toFixed(1)+'°C';
+    $('tempNeedle').style.left = clamp((skin-26)/(42-26),0,1)*100+'%';
+    const hot = s.thermal > 0.05;
+    $('tempTag').textContent = hot ? 'WARM' : 'idle';
+    $('tempTag').className = 'tag' + (hot?' hot':'');
+    const [r,gc,b] = s.led || [0,0,0];
+    $('led').style.background = `rgb(${r},${gc},${b})`;
+    $('led').style.boxShadow = (r+gc+b>120)?`0 0 16px rgb(${r},${gc},${b})`:'none';
+    $('buzz').className = 'buzz' + (s.buzz?' on':'');
+    $('dotStatus').textContent = s.dot_status || '';
+    $('dotDot').className = 'dot-i' + ((s.dot_status||'').includes('dot(s)')?' on':'');
+
+    // radar
+    $('motionBar').style.width = (s.motion*100)+'%';
+    $('motionNum').textContent = (s.motion||0).toFixed(2);
+    $('bpm').textContent = (s.bpm?Math.round(s.bpm):'—')+' bpm';
+    $('radStatus').textContent = s.radar_status || '';
+    $('radDot').className = 'dot-i' + ((s.radar_status||'').includes('live')?' on':'');
+
+    // robot
+    $('robDot').className = 'dot-i' + (s.robot==='connected'?' on':'');
+  };
+  es.onerror = ()=>{ $('dotStatus').textContent = 'stream lost — is resonance.py running?'; };
+</script>
+</body>
+</html>

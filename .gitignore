@@ -4,3 +4,5 @@ clips/*
 !clips/test_fire_ocean_snow.mp4
 __pycache__/
 .region
+media/*.mp4
+media/*.m4a

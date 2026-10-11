@@ -148,6 +148,7 @@ class VideoScene(SceneReader):
 class Breath:
     """Base: exposes .wave (-1 inhale .. +1 exhale, roughly), .bpm, .live."""
     wave, bpm, live, status = 0.0, 0.0, False, ""
+    motion, hand_cm = 0.0, 60.0          # conductor: 0..1 movement, hand distance cm
 
 
 class SimBreath(Breath):
@@ -220,8 +221,20 @@ class RadarBreath(Breath):
         x = frame - frame.mean(axis=2, keepdims=True)
         self.buf.append(np.fft.fft(x * np.hanning(x.shape[2]), axis=2)[..., :32].mean(axis=1))  # rx x bins
         self.n += 1
+
+        # Conductor signal: how much are you MOVING right now (works while moving, no stillness needed).
+        # Frame-to-frame change of the near-range profile = hand/body motion. Also track hand distance.
+        near = slice(round(0.2 / self.bin_m), round(1.3 / self.bin_m))
+        if len(self.buf) >= 2:
+            diff = np.abs(self.buf[-1][:, near] - self.buf[-2][:, near])
+            raw = float(diff.sum())
+            self._mmax = max(getattr(self, "_mmax", 1e-6) * 0.995, raw, 1e-6)   # slow-decay normaliser
+            self.motion = 0.7 * getattr(self, "motion", 0.0) + 0.3 * min(1.0, raw / self._mmax)
+            b = near.start + int(np.argmax(np.abs(self.buf[-1][:, near]).sum(axis=0)))
+            self.hand_cm = 0.6 * getattr(self, "hand_cm", 60.0) + 0.4 * (b * self.bin_m * 100)
+
         if len(self.buf) < self.FPS * 8:
-            self.status = "RADAR calibrating - sit still"
+            self.status = "RADAR warming up — move your hand"
             return
         if self.target is None or self.n % int(self.FPS * 2) == 0:
             self._relock()
@@ -283,6 +296,7 @@ class Dots:
     def __init__(self, enabled=True, max_thermal=0.8):
         self.max = max_thermal
         self.dots, self.status = [], "no dots (preview only)"
+        self.skin = 33.0
         self.state = {"thermal": 0.0, "rgb": (0, 0, 0), "click": False}
         self.lock = threading.Lock()
         if not enabled:
@@ -340,6 +354,7 @@ class Dots:
                 try:
                     if n % 4 == 0:                                 # ~1 Hz safety check + HUD readout
                         skin, sink = d.registers.get_skin_temperature(), d.registers.get_sink_temperature()
+                        if i == 0: self.skin = skin
                         if skin > self.SKIN_LIMIT_C or sink > self.SINK_LIMIT_C:
                             self._target(d, 28.0)                 # too hot: actively cool it down fast
                             resting.add(i)
