@@ -212,6 +212,13 @@
     player = new YT.Player("player", {
       videoId: VIDEO,
       playerVars: { rel: 0, modestbranding: 1, playsinline: 1, origin: location.origin },
+      events: {
+        // demo.html?play=25 starts muted at 0:25 (browsers only autoplay muted video)
+        onReady: () => {
+          const start = new URLSearchParams(location.search).get("play");
+          if (start !== null) { player.mute(); player.seekTo(+start || 0, true); player.playVideo(); }
+        },
+      },
     });
     setInterval(() => { if (player.getCurrentTime) render(player.getCurrentTime()); }, 250);
   };

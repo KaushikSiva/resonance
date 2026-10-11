@@ -92,6 +92,31 @@ def pick_region(monitor=1):
     return region
 
 
+def auto_region(monitor=1, seconds=4.0):
+    """Find the playing video on screen: it's the biggest area whose pixels keep changing."""
+    with getattr(mss, "MSS", mss.mss)() as sct:
+        mon = sct.monitors[monitor]
+        frames, t0 = [], time.time()
+        while time.time() - t0 < seconds:
+            img = np.asarray(sct.grab(mon))[:, :, :3]
+            frames.append(cv2.cvtColor(cv2.resize(img, (mon["width"] // 4, mon["height"] // 4)), cv2.COLOR_BGR2GRAY).astype(np.int16))
+            time.sleep(0.25)
+    motion = np.zeros(frames[0].shape, np.uint8)
+    for a, b in zip(frames, frames[1:]):
+        motion += (np.abs(a - b) > 10).astype(np.uint8)
+    mask = (motion >= max(2, len(frames) // 5)).astype(np.uint8) * 255   # changed in several frames
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
+    n, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+    if n < 2:
+        return None
+    i = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+    x, y, w, h = stats[i, :4] * 4
+    if w * h < 0.02 * mon["width"] * mon["height"]:
+        return None                                               # nothing big is moving: video not playing
+    pad = int(0.03 * min(w, h))                                   # stay inside the player's edges
+    return [int(v) for v in (mon["left"] + x + pad, mon["top"] + y + pad, w - 2 * pad, h - 2 * pad)]
+
+
 class VideoScene(SceneReader):
     """Same scoring, but from a video file played inside the app (loops at the end)."""
 
@@ -372,6 +397,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--monitor", type=int, default=1, help="screen to watch (1 = main)")
     ap.add_argument("--region", type=int, nargs=4, metavar=("X", "Y", "W", "H"), help="watch only this area, e.g. the YouTube player")
+    ap.add_argument("--auto", action="store_true", help="find the playing video on screen by itself (start playback first)")
     ap.add_argument("--pick", action="store_true", help="drag a box around the video on screen (remembered in .region)")
     ap.add_argument("--full-screen", action="store_true", help="ignore the saved .region and watch the whole screen")
     ap.add_argument("--max", type=float, default=0.8, help="max thermal intensity 0..1 (default 0.8)")
@@ -379,10 +405,19 @@ def main():
     ap.add_argument("--sim-breath", action="store_true", help="skip the radar, use a fake 14 bpm breath")
     ap.add_argument("--no-dots", action="store_true", help="preview only, don't drive DataFeel")
     ap.add_argument("--video", help="play this video file inside the app instead of watching the screen")
+    ap.add_argument("--no-hud", action="store_true", help="no window (it would cover the video / Stage Manager); status prints in the terminal")
     ap.add_argument("--record", metavar="OUT.mp4", help="save the window (scene + HUD) to a video for YouTube")
     args = ap.parse_args()
 
-    if args.pick:
+    if args.auto:
+        print("[region] looking for the playing video…")
+        args.region = auto_region(args.monitor)
+        if not args.region:
+            raise SystemExit("[region] no playing video found - press play, then run again (or use --pick)")
+        with open(REGION_FILE, "w") as f:
+            f.write(" ".join(map(str, args.region)))
+        print(f"[region] found video at {args.region}")
+    elif args.pick:
         args.region = pick_region(args.monitor)
     elif not args.region and not args.full_screen and not args.video and os.path.exists(REGION_FILE):
         args.region = [int(v) for v in open(REGION_FILE).read().split()]
@@ -402,7 +437,9 @@ def main():
     scene_s, thermal = 0.0, 0.0
     history = deque(maxlen=200)
     writer = None
-    cv2.namedWindow("ThermoScene", cv2.WINDOW_AUTOSIZE)
+    if not args.no_hud:
+        cv2.namedWindow("ThermoScene", cv2.WINDOW_AUTOSIZE)
+    last_print = 0.0
     try:
         while True:
             raw, cut = scene_reader.read()
@@ -432,8 +469,14 @@ def main():
                 while rec_n < (time.time() - rec_t0) * 15:             # repeat frames to keep real-time speed
                     writer.write(hud)
                     rec_n += 1
-            cv2.imshow("ThermoScene", hud)
-            if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
+            if args.no_hud:
+                if time.time() - last_print > 1:
+                    last_print = time.time()
+                    word = "HOT " if thermal > 0.15 else "COLD" if thermal < -0.15 else "--  "
+                    print(f"[{word}] scene {scene_s:+.2f}  breath {breath.bpm:4.1f} bpm  | {dots.status} | {breath.status}", flush=True)
+            else:
+                cv2.imshow("ThermoScene", hud)
+            if not args.no_hud and cv2.waitKey(1) & 0xFF in (ord("q"), 27):
                 break
             time.sleep(0.05)
     except KeyboardInterrupt:
