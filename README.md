@@ -6,8 +6,10 @@ The colours on screen and your breathing (read by an Infineon 60 GHz radar) driv
 |---|---|
 | Warm scene (fire, sunset, desert) | heat |
 | Cool scene (snow, ocean, ice) | cold |
-| Breathing out / in (radar) | a little warmer / a little cooler; the LEDs pulse with your breath |
+| Breathing out / in (radar) | the LEDs pulse with your breath |
 | Hard scene cut | vibration double-click |
+
+**Pulse model:** the dot fires a short warm or cold *hit* (~5 s) with a buzz when a scene turns hot or cold, then relaxes so its heat sink recovers — this is how DataFeel dots are meant to run (a sustained hold saturates the sink in ~15 s). Tune with `--pulse <sec>` (hit length) and `--gap <sec>` (recovery). Cold is strongest when the dot's metal back can shed heat — expose it to air or rest it on something cool.
 
 ## Run
 

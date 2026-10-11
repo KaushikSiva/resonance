@@ -104,7 +104,7 @@ def auto_region(monitor=1, seconds=5.0):
     motion = np.zeros(frames[0].shape, np.uint8)
     for a, b in zip(frames, frames[1:]):
         motion += (np.abs(a - b) > 10).astype(np.uint8)
-    mask = (motion >= max(3, len(frames) // 2)).astype(np.uint8) * 255   # keeps changing (not a one-off page load)
+    mask = (motion >= max(2, len(frames) // 4)).astype(np.uint8) * 255   # keeps changing (not a one-off page load)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
     n, _, stats, _ = cv2.connectedComponentsWithStats(mask)
     if n < 2:
@@ -307,8 +307,9 @@ class Dots:
 
     # The dots run in the firmware's closed-loop skin-temperature mode, not raw power:
     # raw power kept climbing (43 C after two heat pulses) and saturated the heat sink.
-    NEUTRAL_C, SPAN_C = 32.0, 7.0              # thermal -max..+max  ->  25..39 C (wider = actually felt)
-    SKIN_LIMIT_C, SINK_LIMIT_C = 40.5, 48.0    # hard cut-outs; resume below 38 / 42
+    NEUTRAL_C = 32.0
+    SPAN_HOT_C, SPAN_COLD_C = 7.0, 13.0        # hot -> 39 C; cold -> 19 C (Peltier cooling is weaker, push harder)
+    SKIN_LIMIT_C, SINK_LIMIT_C = 40.5, 48.0    # hard cut-outs; resume below 37 / 42
 
     def _target(self, d, temp):
         from datafeel.device import ThermalMode
@@ -331,25 +332,34 @@ class Dots:
             with self.lock:
                 s = dict(self.state)
                 self.state["click"] = False
-            target = round(self.NEUTRAL_C + s["thermal"] / self.max * self.SPAN_C, 1)
+            idle = abs(s["thermal"]) < 0.05                       # between pulses: power off so the sink recovers
+            span = self.SPAN_HOT_C if s["thermal"] >= 0 else self.SPAN_COLD_C
+            target = round(self.NEUTRAL_C + s["thermal"] / self.max * span, 1)
             n += 1
             for i, d in enumerate(self.dots):
                 try:
                     if n % 4 == 0:                                 # ~1 Hz safety check + HUD readout
                         skin, sink = d.registers.get_skin_temperature(), d.registers.get_sink_temperature()
                         if skin > self.SKIN_LIMIT_C or sink > self.SINK_LIMIT_C:
-                            if i not in resting:
-                                d.disable_all_thermal()
+                            self._target(d, 28.0)                 # too hot: actively cool it down fast
                             resting.add(i)
-                        elif i in resting and skin < 38 and sink < 42:
+                        elif i in resting and skin < 37 and sink < 42:
                             resting.discard(i)
                             sent.pop(i, None)
                         if i == 0:
-                            rest = "  RESTING (too hot)" if resting else ""
-                            self.status = f"{len(self.dots)} dot(s)  skin {skin:.1f} C -> {target:.0f} C{rest}"
-                    if i not in resting and abs(target - sent.get(i, -99)) >= 0.3:
-                        self._target(d, target)
-                        sent[i] = target
+                            rest = "  RESTING (too hot)" if resting else "  idle" if idle else ""
+                            self.status = f"{len(self.dots)} dot(s)  skin {skin:.1f} C -> {'off' if idle else f'{target:.0f} C'}{rest}"
+                    if i in resting:
+                        pass
+                    elif idle:
+                        if sent.get(i) != "off":
+                            d.disable_all_thermal()                   # relax between pulses -> sink recovers
+                            sent[i] = "off"
+                    else:
+                        prev = sent.get(i)
+                        if not isinstance(prev, float) or abs(target - prev) >= 0.3:
+                            self._target(d, target)
+                            sent[i] = target
                     d.set_led(*s["rgb"])
                     if s["click"]:
                         d.play_vibration_sequence([VibrationWaveforms.DOUBLE_CLICK_P100])
@@ -414,7 +424,8 @@ def main():
     ap.add_argument("--pick", action="store_true", help="drag a box around the video on screen (remembered in .region)")
     ap.add_argument("--full-screen", action="store_true", help="ignore the saved .region and watch the whole screen")
     ap.add_argument("--max", type=float, default=1.0, help="max thermal intensity 0..1 (default 1.0 = full range)")
-    ap.add_argument("--dwell", type=float, default=8.0, help="seconds to hold hot/cold before it may switch (default 8)")
+    ap.add_argument("--pulse", type=float, default=5.0, help="length of each warm/cold hit in seconds (default 5)")
+    ap.add_argument("--gap", type=float, default=7.0, help="recovery gap between hits so the sink cools (default 7)")
     ap.add_argument("--breath-weight", type=float, default=0.3, help="how much breathing shifts temperature")
     ap.add_argument("--sim-breath", action="store_true", help="skip the radar, use a fake 14 bpm breath")
     ap.add_argument("--no-dots", action="store_true", help="preview only, don't drive DataFeel")
@@ -452,8 +463,8 @@ def main():
     def _stop(*_):
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, _stop)                          # killed -> same clean shutdown as Ctrl+C
-    scene_s, thermal = 0.0, 0.0
-    mode, mode_since = 0, time.time()          # -1 cold / 0 neutral / +1 hot, committed & held
+    scene_s, thermal, mode = 0.0, 0.0, 0
+    pulse_dir, pulse_start, next_pulse = 0, -1e9, 0.0   # short thermal hits, not a held temperature
     history = deque(maxlen=200)
     writer = None
     if not args.no_hud:
@@ -463,21 +474,28 @@ def main():
         while True:
             raw, cut = scene_reader.read()
             scene_s = 0.9 * scene_s + 0.1 * raw                        # smooth out flicker
-            # Commit to hot/cold and HOLD: the dot is slow, so chasing every cut never reaches a felt
-            # temperature. Pick a direction, drive it fully, and don't flip faster than --dwell seconds.
+            # PULSE model (how DataFeel is meant to run): the dot delivers short, punchy thermal hits,
+            # not held temperatures (a sustained hold saturates the little heat sink in ~15 s). So we fire
+            # a warm pulse when a scene turns hot and a cold pulse when it turns cold, each with a buzz,
+            # then relax to let the sink recover. Contrast + vibration is what the skin actually feels.
             now = time.time()
-            want = 1 if scene_s > 0.25 else -1 if scene_s < -0.25 else mode   # dead zone keeps current mode
-            if want != mode and now - mode_since >= args.dwell:
-                mode, mode_since = want, now
-            bw = args.breath_weight if (breath.live or isinstance(breath, SimBreath)) else 0.0   # ignore a noisy radar
-            base = float(mode) * args.max                              # fully commit, not proportional
-            thermal = float(np.clip(base + bw * breath.wave * 0.25, -args.max, args.max))
+            want = 1 if scene_s > 0.3 else -1 if scene_s < -0.3 else 0
+            fire = False
+            if want != 0 and now >= next_pulse:                        # new direction, or time for another hit
+                if want != pulse_dir or now - pulse_start >= args.pulse + args.gap:
+                    pulse_dir, pulse_start = want, now
+                    next_pulse = now + args.pulse + args.gap           # refractory: sink recovers between hits
+                    fire = True
+            active = now - pulse_start < args.pulse                    # are we inside the current pulse?
+            thermal = float(pulse_dir) * args.max if active else 0.0   # drive hard during the hit, else relax
+            mode = pulse_dir if active else 0                          # (for the HUD / status word)
+            bw = args.breath_weight if (breath.live or isinstance(breath, SimBreath)) else 0.0
 
             # LED: orange when hot, blue when cold, brightness rides the breath
             glow = 0.35 + 0.65 * (breath.wave + 1) / 2
             t = (thermal / args.max + 1) / 2
             rgb = tuple(int(c * glow) for c in (255 * t, 80 * t + 40, 255 * (1 - t)))
-            dots.update(thermal, rgb, click=cut)
+            dots.update(thermal, rgb, click=cut or fire)              # buzz on each pulse
 
             history.append((breath.wave, thermal / args.max))
             hud = draw_hud(scene_reader.thumb, scene_s, breath, thermal, history, dots.status)
