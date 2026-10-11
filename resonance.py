@@ -41,7 +41,7 @@ def now_t():
 
 # ---------------------------------------------------------------- control loop
 
-def control_loop(timeline, dots, radar, args):
+def control_loop(timeline, dots, radar, robot, args):
     grid = timeline["grid_hz"]
     warmth, energy, beats = timeline["warmth"], timeline["energy"], timeline["beats"]
     state["bpm"] = timeline["bpm"]
@@ -102,8 +102,71 @@ def control_loop(timeline, dots, radar, args):
         state["beat"] = beat_now
         state["buzz"] = fire
 
+        if robot:                                                # MasterPi dances to the same energy
+            robot.drive(master, beat_now, w)
+            state["robot"] = robot.status
+
         push_event(dict(state))
         time.sleep(0.05)
+
+
+class Robot:
+    """Drives the MasterPi over a persistent SSH pipe to dance_daemon.py.
+    Auto-reconnects — the robot's Wi-Fi drops often, so a drop just pauses the dance."""
+
+    def __init__(self, host="10.0.0.68", user="pi", key="~/.ssh/masterpi", wheels=False):
+        self.host, self.user = host, user
+        self.key = os.path.expanduser(key)
+        self.wheels = wheels
+        self.proc = None
+        self.status = "connecting"
+        self.last_send = 0.0
+        self._lock = threading.Lock()
+        threading.Thread(target=self._keepalive, daemon=True).start()
+
+    def _spawn(self):
+        import subprocess
+        env = "WHEELS=1 " if self.wheels else ""
+        cmd = ["ssh", "-i", self.key, "-o", "StrictHostKeyChecking=no",
+               "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=6",
+               "-o", "ServerAliveInterval=3", "-o", "ServerAliveCountMax=2",
+               "-o", "BatchMode=yes", f"{self.user}@{self.host}",
+               f"{env}python3 -u /tmp/dance_daemon.py"]
+        try:
+            self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                         stderr=subprocess.DEVNULL, text=True, bufsize=1)
+            self.status = "dancing"
+        except Exception:
+            self.proc = None
+            self.status = "offline"
+
+    def _keepalive(self):
+        import subprocess
+        while True:
+            if self.proc is None or self.proc.poll() is not None:
+                self.status = "reconnecting"
+                # only try when the host answers, so we don't hang on a dead pipe
+                if subprocess.run(["nc", "-z", "-G", "2", self.host, "22"],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+                    self._spawn()
+                else:
+                    self.status = "offline (robot not reachable)"
+            time.sleep(2)
+
+    def drive(self, master, beat, warmth):
+        if self.proc is None or self.proc.poll() is not None:
+            return
+        now = time.time()
+        if not beat and now - self.last_send < 0.12:                 # throttle; always send on a beat
+            return
+        self.last_send = now
+        try:
+            with self._lock:
+                self.proc.stdin.write(json.dumps({"master": round(master, 2),
+                                                  "beat": 1 if beat else 0, "warmth": round(warmth, 2)}) + "\n")
+                self.proc.stdin.flush()
+        except Exception:
+            self.proc = None                                         # pipe broke -> keepalive respawns
 
 
 def push_event(data):
@@ -213,6 +276,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-dot", action="store_true")
     ap.add_argument("--no-radar", action="store_true")
+    ap.add_argument("--robot", action="store_true", help="connect the MasterPi and make it dance")
+    ap.add_argument("--robot-host", default="10.0.0.68")
+    ap.add_argument("--wheels", action="store_true", help="allow wheel wiggle (robot on the floor, not a table)")
     ap.add_argument("--max", type=float, default=1.0, help="max warm intensity 0..1")
     ap.add_argument("--pulse", type=float, default=2.5, help="warm-hit length seconds")
     args = ap.parse_args()
@@ -229,7 +295,10 @@ def main():
             print(f"[radar] not available ({e}) — simulated")
     print(f"[dot] {dots.status if dots else 'off'}   [radar] {'on' if radar else 'sim'}")
 
-    threading.Thread(target=control_loop, args=(tl, dots, radar, args), daemon=True).start()
+    robot = Robot(args.robot_host, wheels=args.wheels) if args.robot else None
+    if robot: print(f"[robot] connecting to {args.robot_host} (wheels={'on' if args.wheels else 'off'})")
+
+    threading.Thread(target=control_loop, args=(tl, dots, radar, robot, args), daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"\n  RESONANCE ready →  http://localhost:{PORT}\n  (put the DataFeel dot on your wrist; move your hand near the radar)\n")
     try:
