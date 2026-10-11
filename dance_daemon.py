@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 # Runs ON the MasterPi. Reads one JSON command per line from stdin:
-#   {"master":0..1, "beat":0/1, "warmth":-1..1}
-# Dance = BODY MOVEMENT on the beat: sways side to side and rocks back/forth (mecanum strafe).
-# No LED. Put the robot on the FLOOR. Speed grows with energy.
+#   {"master":0..1, "beat":0/1}   or   {"stop":1}
+# Dance = a gentle side-to-side STRAFE on the beat (left, right, left, right). On the FLOOR.
+# master ~0 (stopped/paused) or {"stop":1} -> wheels stop immediately.
 import json
 import sys
 import time
@@ -11,11 +11,9 @@ import common.mecanum as mecanum
 
 chassis = mecanum.MecanumChassis()
 
-# direction angles (from Hiwonder demo): 90=left, 270=right, 0=forward, 180=back.
-# "side and back, each side": left, right, left, right, then a back-forward rock.
-CYCLE = [90, 270, 90, 270, 180, 0]
-STEP = 0.22          # how long each move pulse runs before stopping
-GAP_STOP = True      # stop between beats so each beat is one clean step
+CYCLE = [90, 270]        # 90 = strafe left, 270 = strafe right
+STEP = 0.25              # how long each strafe pulse runs
+MIN_MASTER = 0.12        # below this, don't move (treated as stopped)
 
 
 def stop():
@@ -26,7 +24,7 @@ def stop():
 
 
 stop()
-sys.stdout.write("DANCE_READY move\n")
+sys.stdout.write("DANCE_READY strafe\n")
 sys.stdout.flush()
 
 step = 0
@@ -39,21 +37,27 @@ for line in sys.stdin:
         c = json.loads(line)
     except Exception:
         continue
+
+    if c.get("stop"):                       # hard stop from the STOP button
+        stop()
+        move_until = 0.0
+        continue
+
     m = max(0.0, min(1.0, float(c.get("master", 0))))
     beat = bool(c.get("beat"))
     now = time.time()
 
-    if beat:
-        direction = CYCLE[step % len(CYCLE)]
+    if beat and m > MIN_MASTER:             # on the beat: one gentle strafe step
+        speed = int(22 + 26 * m)            # gentle 22..48
+        chassis_dir = CYCLE[step % len(CYCLE)]
         step += 1
-        speed = int(28 + 45 * m)                       # 28..73, grows with energy
         try:
-            chassis.set_velocity(speed, direction, 0)
+            chassis.set_velocity(speed, chassis_dir, 0)
         except Exception:
             pass
         move_until = now + STEP
-    elif GAP_STOP and move_until and now >= move_until:
-        stop()                                         # finish the step, hold still until next beat
+    elif move_until and now >= move_until:  # finish the step, then hold still
+        stop()
         move_until = 0.0
 
 stop()

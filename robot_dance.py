@@ -14,7 +14,7 @@ tl = json.load(open("/tmp/fireball.timeline.json"))
 beats, energy, grid, dur = tl["beats"], tl["energy"], tl["grid_hz"], tl["duration"]
 
 offset = float(sys.argv[1]) if len(sys.argv) > 1 else 0.0
-CYCLE = [90, 270, 90, 270, 180, 0]        # left, right, left, right, back, forward
+CYCLE = [90, 270]                          # strafe left, right (dances around the same spot)
 STEP = 0.22
 
 
@@ -37,7 +37,7 @@ for tb in beats:
     elif wait < -0.5:
         continue
     k = min(len(energy) - 1, int(tb * grid))
-    speed = int(28 + 45 * energy[k])      # bigger moves in the intense parts
+    speed = int(22 + 26 * energy[k])      # gentle strafe, grows a little with intensity
     try:
         chassis.set_velocity(speed, CYCLE[step % len(CYCLE)], 0)
         time.sleep(STEP)

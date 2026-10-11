@@ -82,7 +82,7 @@ def control_loop(timeline, dots, radar, robot, args):
                 dots.update(0.0, (0, 0, 0), click=False)
                 state["dot_status"] = dots.status + " · STOPPED"
             if robot:
-                robot.drive(0.0, False, 0.0)
+                robot.stop()                                     # halt the wheels immediately
                 state["robot"] = "stopped"
             push_event(dict(state))
             time.sleep(0.1)
@@ -117,7 +117,10 @@ def control_loop(timeline, dots, radar, robot, args):
         state["buzz"] = fire
 
         if robot:                                                # MasterPi dances to the same energy
-            robot.drive(master, beat_now, w)
+            if play["playing"]:
+                robot.drive(master, beat_now, w)
+            else:
+                robot.stop()                                     # paused -> hold still
             state["robot"] = robot.status
 
         push_event(dict(state))
@@ -193,10 +196,18 @@ class Robot:
         if not beat and now - self.last_send < 0.12:                 # throttle; always send on a beat
             return
         self.last_send = now
+        self._send_cmd({"master": round(master, 2), "beat": 1 if beat else 0})
+
+    def stop(self):
+        """Halt the robot immediately (STOP button / pause)."""
+        self._send_cmd({"stop": 1})
+
+    def _send_cmd(self, cmd):
+        if self.proc is None or self.proc.poll() is not None:
+            return
         try:
             with self._lock:
-                self.proc.stdin.write(json.dumps({"master": round(master, 2),
-                                                  "beat": 1 if beat else 0, "warmth": round(warmth, 2)}) + "\n")
+                self.proc.stdin.write(json.dumps(cmd) + "\n")
                 self.proc.stdin.flush()
         except Exception:
             self.proc = None                                         # pipe broke -> keepalive respawns
