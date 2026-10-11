@@ -92,7 +92,7 @@ def pick_region(monitor=1):
     return region
 
 
-def auto_region(monitor=1, seconds=4.0):
+def auto_region(monitor=1, seconds=5.0):
     """Find the playing video on screen: it's the biggest area whose pixels keep changing."""
     with getattr(mss, "MSS", mss.mss)() as sct:
         mon = sct.monitors[monitor]
@@ -104,7 +104,7 @@ def auto_region(monitor=1, seconds=4.0):
     motion = np.zeros(frames[0].shape, np.uint8)
     for a, b in zip(frames, frames[1:]):
         motion += (np.abs(a - b) > 10).astype(np.uint8)
-    mask = (motion >= max(2, len(frames) // 5)).astype(np.uint8) * 255   # changed in several frames
+    mask = (motion >= max(3, len(frames) // 2)).astype(np.uint8) * 255   # keeps changing (not a one-off page load)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
     n, _, stats, _ = cv2.connectedComponentsWithStats(mask)
     if n < 2:
@@ -287,16 +287,18 @@ class Dots:
         self.lock = threading.Lock()
         if not enabled:
             return
+        self._discover()
+        self.status = f"{len(self.dots)} DataFeel dot(s)" if self.dots else "no DataFeel dots yet - will keep looking"
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _discover(self):
+        import contextlib, io
         try:
             from datafeel.device import discover_devices
-            self.dots = discover_devices(4)
-        except Exception as e:
-            self.status = f"DataFeel error: {e}"
-        if self.dots:
-            self.status = f"{len(self.dots)} DataFeel dot(s)"
-            threading.Thread(target=self._run, daemon=True).start()
-        elif not self.status.startswith("DataFeel error"):
-            self.status = "no DataFeel dots found (preview only)"
+            with contextlib.redirect_stdout(io.StringIO()):           # the SDK prints per address
+                self.dots = discover_devices(4)
+        except Exception:
+            self.dots = []
 
     def update(self, thermal, rgb, click=False):
         with self.lock:
@@ -315,8 +317,17 @@ class Dots:
 
     def _run(self):
         from datafeel.device import VibrationWaveforms
-        sent, resting, n = {}, set(), 0
+        sent, resting, n, fails, last_scan = {}, set(), 0, 0, 0.0
         while True:
+            if not self.dots or fails > 8:                        # unplugged / stopped answering: reconnect
+                if time.time() - last_scan > 3:
+                    last_scan = time.time()
+                    self.status = "DataFeel not answering - reconnecting (replug El Jefe if this stays)"
+                    self._discover()
+                    sent.clear(); resting.clear(); fails = 0
+                if not self.dots:
+                    time.sleep(0.5)
+                    continue
             with self.lock:
                 s = dict(self.state)
                 self.state["click"] = False
@@ -342,7 +353,9 @@ class Dots:
                     d.set_led(*s["rgb"])
                     if s["click"]:
                         d.play_vibration_sequence([VibrationWaveforms.DOUBLE_CLICK_P100])
+                    fails = 0
                 except Exception as e:
+                    fails += 1
                     self.status = f"DataFeel write error: {e}"
             time.sleep(0.25)
 
@@ -434,6 +447,10 @@ def main():
     dots = Dots(not args.no_dots, args.max)
     print(f"[dataFeel] {dots.status}")
 
+    import signal
+    def _stop(*_):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, _stop)                          # killed -> same clean shutdown as Ctrl+C
     scene_s, thermal = 0.0, 0.0
     history = deque(maxlen=200)
     writer = None

@@ -11,6 +11,6 @@ osascript -e "tell application \"Google Chrome\"
   open location \"http://localhost:8765/demo.html?play=$START\"
 end tell" >/dev/null
 echo "Waiting for the video to start…"
-sleep 6
+sleep 10                                    # let the page finish loading so only the video is moving
 osascript -e 'tell application "Google Chrome" to activate' >/dev/null
 exec .venv/bin/python -u thermoscene.py --auto --no-hud
