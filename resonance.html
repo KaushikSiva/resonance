@@ -19,6 +19,9 @@
   html,body{margin:0;background:var(--bg);color:var(--fg);
     font-family:"Barlow Condensed",system-ui,sans-serif;font-size:16px}
   body{min-height:100%;padding:16px;padding-block:18px}
+  /* ambient wash — shifts subtly by time of day + weather */
+  #ambient{position:fixed;inset:0;z-index:-1;pointer-events:none;transition:background 2.5s ease;
+    background:radial-gradient(130% 90% at 50% -15%, var(--amb, transparent), transparent 72%)}
   .mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
 
   .top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:14px}
@@ -89,6 +92,7 @@
 </style>
 </head>
 <body>
+  <div id="ambient"></div>
   <div class="top">
     <h1>RESONANCE</h1>
     <span class="sub">feel · conduct · react</span>
@@ -193,9 +197,25 @@
     document.getElementById('clock').textContent =
       d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }, 1000);
 
+  function setAmbient(cond) {
+    const h = new Date().getHours();
+    const night = h < 6 || h >= 19, dusk = (h >= 17 && h < 19);
+    cond = (cond || '').toLowerCase();
+    let amb;
+    if (night)                                               amb = 'rgba(24,34,78,0.55)';   // deep blue night
+    else if (cond.includes('rain') || cond.includes('shower')) amb = 'rgba(28,64,120,0.5)'; // rainy blue
+    else if (cond.includes('cloud') || cond.includes('overcast') || cond.includes('fog')) amb = 'rgba(64,74,96,0.42)';
+    else if (dusk)                                           amb = 'rgba(150,62,28,0.45)';  // warm dusk
+    else                                                     amb = 'rgba(150,92,22,0.38)';  // sunny amber day
+    document.documentElement.style.setProperty('--amb', amb);
+  }
+  setAmbient('');
+  setInterval(() => setAmbient(window._cond || ''), 60000);
+
   es.onmessage = ev => {
     const s = JSON.parse(ev.data);
     const wx = s.weather || {};
+    if (wx.condition && wx.condition !== window._cond) { window._cond = wx.condition; setAmbient(wx.condition); }
     document.getElementById('wx').textContent =
       (wx.temp_f!=null ? wx.temp_f+'°F · '+wx.condition+' · '+wx.city : 'weather offline');
     const v = wx.views;

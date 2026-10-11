@@ -60,10 +60,16 @@ def _weather_brightdata(city):
     q = urllib.parse.quote(f"weather {city}")
     data = json.loads(_brd(SERP_ZONE, f"https://www.google.com/search?q={q}&brd_json=1"))
     w = data.get("weather") or {}
-    temp = w.get("temperature_alt") or w.get("temperature") or ""
-    f = re.search(r"(\d+)", temp)
+    temp_f = None
+    for v in (w.get("temperature_alt", ""), w.get("temperature", "")):   # prefer the °F value
+        if "F" in v.upper():
+            m = re.search(r"-?\d+", v); temp_f = int(m.group()) if m else None; break
+    if temp_f is None:                                                   # only °C available -> convert
+        m = re.search(r"-?\d+", w.get("temperature", "") or w.get("temperature_alt", ""))
+        if m:
+            temp_f = round(int(m.group()) * 9 / 5 + 32)
     cond = (w.get("subtitles") or ["", "—"])[-1].lower()
-    return {"city": city, "temp_f": int(f.group(1)) if f else None, "condition": cond, "via": "Bright Data"}
+    return {"city": city, "temp_f": temp_f, "condition": cond, "via": "Bright Data"}
 
 
 def _weather_direct(city="San Francisco", lat=37.7749, lon=-122.4194):
